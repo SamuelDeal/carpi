@@ -151,15 +151,12 @@ bool run() {
 
     if(!devs.isBigDiskConnected()) {
         led.blinkQuickly();
-        log(LOG_INFO, "blink quickly");
     }
     else if(devs.isCopyAvailable()) {
         led.blinkSlowly();
-        log(LOG_INFO, "blink slowly");
     }
     else {
         led.on();
-        log(LOG_INFO, "on");
     }
 
     bool exit = false;
@@ -182,15 +179,12 @@ bool run() {
             devs.manageChanges();
             if(!devs.isBigDiskConnected()) {
                 led.blinkQuickly();
-                log(LOG_INFO, "blink quickly loop");
             }
             else if(devs.isCopyAvailable()) {
                 led.blinkSlowly();
-                log(LOG_INFO, "blink slowly loop");
             }
             else {
                 led.on();
-                log(LOG_INFO, "on loop");
             }
         }
     }
@@ -216,9 +210,12 @@ int main( int argc, char *argv[] ) {
         }
     }
 
-
     initLog(useSysLog);
-    log( LOG_INFO, "starting" );
+    if(getuid() != 0) {
+        log(LOG_ERR, "you must be root to run this application");
+        return EXIT_FAILURE;
+    }
+    log(LOG_INFO, "starting");
 
     if(isDaemon){
         daemonize();
@@ -226,7 +223,7 @@ int main( int argc, char *argv[] ) {
 
     bool success = run();
 
-    log( LOG_NOTICE, "terminated" );
+    log(LOG_NOTICE, "terminated");
     cleanLog();
     return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }

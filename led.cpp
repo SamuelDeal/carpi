@@ -4,6 +4,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
+#include <errno.h>
+#include <cstring>
 
 #include <bcm2835.h>
 
@@ -20,7 +22,6 @@ const long Led::QUICK_TIME;
 
 Led::Led(unsigned short ledPin): _mut(PTHREAD_MUTEX_INITIALIZER) {
     _pin = ledPin;
-    _exit = false;
     _isOn = false;
     _status = Led::OFF;
 
@@ -80,6 +81,11 @@ void Led::blinkSlowly() {
     else{
         _status = Led::BLINK_SLOWLY;
         _efd = eventfd(0, 0);
+        if(_efd == -1) {
+            log(LOG_ERR, "eventfd failed: %s", strerror(errno));
+            pthread_mutex_unlock(&_mut);
+            return;
+        }
         int result = pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
     pthread_mutex_unlock(&_mut);
@@ -101,6 +107,11 @@ void Led::blinkQuickly() {
     else{
         _status = Led::BLINK_QUICKLY;
         _efd = eventfd(0, 0);
+        if(_efd == -1) {
+            log(LOG_ERR, "eventfd failed: %s", strerror(errno));
+            pthread_mutex_unlock(&_mut);
+            return;
+        }
         int result = pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
     pthread_mutex_unlock(&_mut);
@@ -132,60 +143,61 @@ void Led::_stopBlinking() {
 }
 
 void* Led::_startBlinking(void*led){
-   ((Led*)led)->_blink();
-   return NULL;
+    ((Led*)led)->_blink();
+    return NULL;
 }
 
 void Led::_blink(){
-   signal(SIGCHLD,SIG_DFL); // A child process dies
-   signal(SIGTSTP,SIG_IGN); // Various TTY signals
-   signal(SIGTTOU,SIG_IGN);
-   signal(SIGTTIN,SIG_IGN);
-   signal(SIGHUP, SIG_IGN); // Ignore hangup signal
-   signal(SIGINT,SIG_IGN); // ignore SIGTERM
-   signal(SIGQUIT,SIG_IGN); // ignore SIGTERM
-   signal(SIGTERM,SIG_IGN); // ignore SIGTERM
+    signal(SIGCHLD,SIG_DFL); // A child process dies
+    signal(SIGTSTP,SIG_IGN); // Various TTY signals
+    signal(SIGTTOU,SIG_IGN);
+    signal(SIGTTIN,SIG_IGN);
+    signal(SIGHUP, SIG_IGN); // Ignore hangup signal
+    signal(SIGINT,SIG_IGN); // ignore SIGTERM
+    signal(SIGQUIT,SIG_IGN); // ignore SIGTERM
+    signal(SIGTERM,SIG_IGN); // ignore SIGTERM
 
-   long time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
-   _light(!_isOn);
-   while(!_exit){
-         fd_set rfds;
-         struct timeval tv;
-         int retval;
+    long time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+    _light(!_isOn);
+    bool exit = false;
+    while(!exit){
+        fd_set rfds;
+        struct timeval tv;
+        int retval;
 
-         FD_ZERO(&rfds);
-         FD_SET(_efd, &rfds);
-         tv.tv_sec = 0;
-         tv.tv_usec = time;
+        FD_ZERO(&rfds);
+        FD_SET(_efd, &rfds);
+        tv.tv_sec = 0;
+        tv.tv_usec = time;
 
-         retval = select(_efd+1, &rfds, NULL, NULL, &tv);
-         if (retval == -1) {
-             log(LOG_ERR, "select() failed");
-             _exit = true;
-         }
-         else if (!retval) {  // timeout
-  	     time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
-             _light(!_isOn);
+        retval = select(_efd+1, &rfds, NULL, NULL, &tv);
+        if(retval == -1) {
+            log(LOG_ERR, "select() failed");
+            exit = true;
+        }
+        else if (!retval) {  // timeout
+            time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+            _light(!_isOn);
         }
         else {
-             uint64_t value;
-             size_t s = read(_efd, &value, sizeof(uint64_t));
-             if(s != sizeof(uint64_t)){
-                 log(LOG_ERR, "read() failed");
-                 _exit = true;
-             }
-             else if(value == Led::QUIT){
-		 _exit = true;
-	     }
-	     else{
-	   	 time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
-                 if(tv.tv_usec > time){
-                     time = tv.tv_usec - time;
-                 }
-                 else{
-                     _light(!_isOn);
+            uint64_t value;
+            size_t s = read(_efd, &value, sizeof(uint64_t));
+            if(s != sizeof(uint64_t)){
+                log(LOG_ERR, "read() failed");
+                exit = true;
+            }
+            else if(value == Led::QUIT){
+	        exit = true;
+            }
+	    else{
+	        time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+                if(tv.tv_usec > time){
+                    time = tv.tv_usec - time;
                 }
-             }
-         }
+                else{
+                    _light(!_isOn);
+                }
+            }
+        }
     }
 }

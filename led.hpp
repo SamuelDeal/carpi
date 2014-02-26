@@ -25,7 +25,6 @@ class Led {
        pthread_t _thread;
        pthread_mutex_t _mut;
        bool _isOn;
-       bool _exit;
        uint64_t _status;
 
        static void* _startBlinking(void*);
