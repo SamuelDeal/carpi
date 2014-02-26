@@ -1,16 +1,18 @@
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#include <algorithm>
 #include <errno.h>
+
+#include <unistd.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <signal.h>
 #include <sys/signalfd.h>
-#include <unistd.h>
 #include <sys/select.h>
-#include <algorithm>
+#include <sys/capability.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/prctl.h>
 
 #include <bcm2835.h>
 
@@ -19,9 +21,61 @@
 #include "led.hpp"
 #include "devices.hpp"
 
-#define EXIT_SUCCESS 0
-#define EXIT_FAILURE 1
+//manage linux capabilities to improve security
+bool updateRights() {
+    if(!CAP_IS_SUPPORTED(CAP_SYS_ADMIN) || !CAP_IS_SUPPORTED(CAP_SYSLOG)) {
+        log(LOG_ERR, "required capabilities are not supported");
+        return false;
+    }
 
+    cap_t caps = cap_get_proc();
+    if(caps == NULL) {
+        log(LOG_ERR, "unable to get capabilities: %s", strerror(errno));
+        return false;
+    }
+    cap_value_t capList[] = { CAP_SYS_ADMIN, CAP_SYSLOG/* , CAP_SETUID, CAP_SETGID*/ } ;
+    unsigned num_caps = sizeof(capList)/sizeof(cap_value_t);
+    if(cap_set_flag(caps, CAP_EFFECTIVE, num_caps, capList, CAP_SET) ||
+        cap_set_flag(caps, CAP_INHERITABLE, num_caps, capList, CAP_SET) ||
+        cap_set_flag(caps, CAP_PERMITTED, num_caps, capList, CAP_SET)) {
+            log(LOG_ERR, "unable to set capability flags: %s", strerror(errno));
+            return false;
+    }
+
+    if(cap_set_proc(caps) == -1) {
+        log(LOG_ERR, "unable to set capabilities: %s", strerror(errno));
+        return false;
+    }
+
+    if (prctl(PR_SET_KEEPCAPS, 1L)) {
+        log(LOG_ERR, "prctl failed %s", strerror(errno));
+        return false;
+    }
+
+    // Drop user if there is one, and we were run as root
+    if(( getuid() == 0 || geteuid() == 0) && strcmp(RUN_AS_USER, "root") != 0) {
+        struct passwd *pw = getpwnam(RUN_AS_USER);
+        if(!pw) {
+            log(LOG_ERR, "unknow user %s", RUN_AS_USER);
+            return false;
+        }
+        if(setuid(pw->pw_uid)) {
+            log(LOG_ERR, "unable to set user %s", strerror(errno));
+            return false;
+        }
+        log(LOG_NOTICE, "setting user to " RUN_AS_USER);
+    }
+
+    if(cap_set_proc(caps) == -1) {
+        log(LOG_ERR, "unable to set capabilities: %s", strerror(errno));
+        return false;
+    }
+
+    if(cap_free(caps) == -1) {
+        log(LOG_ERR, "unable to free capabilities: %s", strerror(errno));
+        return false;
+    }
+}
 
 static void child_handler(int signum){
     switch(signum) {
@@ -55,14 +109,7 @@ static void daemonize(){
         exit(EXIT_FAILURE);
     }
 
-    /* Drop user if there is one, and we were run as root */
-    if(( getuid() == 0 || geteuid() == 0) && strcmp(RUN_AS_USER, "root") != 0) {
-        struct passwd *pw = getpwnam(RUN_AS_USER);
-        if ( pw ) {
-            log( LOG_NOTICE, "setting user to " RUN_AS_USER );
-            setuid( pw->pw_uid );
-        }
-    }
+    updateRights();
 
     /* Trap signals that we expect to recieve */
     signal(SIGCHLD,child_handler);
@@ -140,7 +187,7 @@ bool run() {
          return false;
     }
 
-    int signalFd = signalfd(-1, &mask, 0); 
+    int signalFd = signalfd(-1, &mask, 0);
     if (signalFd == -1) {
          log(LOG_ERR, "signalfd failed!");
          return false;
@@ -211,8 +258,10 @@ int main( int argc, char *argv[] ) {
     }
 
     initLog(useSysLog);
-    if(getuid() != 0) {
-        log(LOG_ERR, "you must be root to run this application");
+    if(getuid() != 0) { //you are not root
+        if(!isDaemon) { //syslog may not write in good place, use std instead
+            fprintf(stderr, "you must be root to run this application\n");
+        }
         return EXIT_FAILURE;
     }
     log(LOG_INFO, "starting");

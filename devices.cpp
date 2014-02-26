@@ -57,9 +57,6 @@ void Devices::manageChanges() {
     else if(strcmp(action, "remove") == 0) {
         _onRemoved(device);
     }
-    else {
-        _onChanged(device);
-    }
     udev_device_unref(device);
 }
 
@@ -77,27 +74,20 @@ bool Devices::isCopyAvailable() const {
 
 void Devices::_onAdded(udev_device *device) {
     const char *devtype = udev_device_get_devtype(device);
-    if(strcmp(devtype, "partition") != 0) {
+    if(devtype ==NULL || strcmp(devtype, "partition") != 0) {
         return;
     }
-/*            const char* idFsType = udev_device_get_property_value(device, "ID_FS_TYPE");
-            const char* idFsLabel = udev_device_get_property_value(device, "ID_FS_LABEL");
-*/
     Devices::mountStatus status = _getStatus(device);
     const char* sysname = udev_device_get_sysname(device);
-    switch(status) {
-        case Devices::ignored: log(LOG_INFO, "ignored: %s", sysname); break;
-        case Devices::system: log(LOG_INFO, "system: %s", sysname); break;
-        case Devices::umounted: log(LOG_INFO, "umounted: %s", sysname); break;
-        case Devices::ro: log(LOG_INFO, "ro: %s", sysname); break;
-        case Devices::rw: log(LOG_INFO, "rw: %s", sysname); break;
-    }
     bool mountFailure = false;
+    const char* idFsLabelEnc = udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
+    if(idFsLabelEnc == NULL){
+        return;
+    }
     if((status == Devices::umounted) || (status == Devices::rw)){
         mountFailure = !_mount(device, true, status);
     }
     if((!mountFailure) && (status != Devices::ignored) && (status != Devices::system)) {
-        const char* idFsLabelEnc = udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
         if(strcmp(idFsLabelEnc, BIG_DISK_NAME) == 0){
             _bigDiskConnected = true;
         }
@@ -109,11 +99,14 @@ void Devices::_onAdded(udev_device *device) {
 
 void Devices::_onRemoved(udev_device *device) {
     const char *devtype = udev_device_get_devtype(device);
-    if(strcmp(devtype, "partition") != 0) {
+    if(devtype == NULL || strcmp(devtype, "partition") != 0) {
         return;
     }
     _umount(device);
     const char* idFsLabelEnc = udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
+    if(idFsLabelEnc == NULL){
+        return;
+    }
     if(strcmp(idFsLabelEnc, BIG_DISK_NAME) == 0){
         _bigDiskConnected = false;
     }
@@ -122,11 +115,6 @@ void Devices::_onRemoved(udev_device *device) {
             return (strcmp(idFsLabelEnc, name) == 0);
         });
     }
-}
-
-
-void Devices::_onChanged(udev_device *device) {
-
 }
 
 void Devices::_checkSizes() {
@@ -265,6 +253,7 @@ bool Devices::_mount(udev_device *device, bool readOnly, Devices::mountStatus st
         log(LOG_ERR, "mount %s failed: %s", devname.c_str(), strerror(errno));
         return false;
     }
+    log(LOG_INFO, "%s mounted on %s as %s", devname.c_str(), path.c_str(), readOnly ? "read only" : "read-write");
     return true;
 }
 
@@ -281,16 +270,19 @@ bool Devices::_umount(udev_device *device, Devices::mountStatus status) const {
 
     std::string path = "/media/";
     path += udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
-    if(umount2(path.c_str(), MNT_DETACH) != 0){
-        std::string devname = "/dev/";
-        devname += udev_device_get_sysname(device);
-        log(LOG_ERR, "umount %s (%s) failed: %s", path.c_str(), devname.c_str(), strerror(errno));
+    return _umount(path.c_str());
+}
+
+bool Devices::_umount(const char* path) const {
+    if(umount2(path, MNT_DETACH) != 0){
+        log(LOG_ERR, "umount %s failed: %s", path, strerror(errno));
         return false;
     }
+    log(LOG_INFO, "%s umounted", path, strerror(errno));
 
-    int result = rmdir(path.c_str());
+    int result = rmdir(path);
     if((result != 0) && (errno != ENOENT)){
-        log(LOG_ERR, "Unable to delete folder %s: %s", path.c_str(), strerror(errno));
+        log(LOG_ERR, "Unable to delete folder %s: %s", path, strerror(errno));
         return false;
     }
     return true;
