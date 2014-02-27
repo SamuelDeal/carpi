@@ -14,12 +14,90 @@
 #include <sys/stat.h>
 #include <sys/prctl.h>
 
-#include <bcm2835.h>
-
 #include "config.h"
 #include "log.hpp"
 #include "led.hpp"
 #include "devices.hpp"
+#include "gpio.hpp"
+
+
+
+bool run(bool isDaemon) {
+    sigset_t mask;
+    struct signalfd_siginfo fdsi;
+    ssize_t s;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGQUIT);
+    sigaddset(&mask, SIGTERM);
+
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
+         log(LOG_ERR, "sigprocmask failed!");
+         return false;
+    }
+
+    int signalFd = signalfd(-1, &mask, 0);
+    if(signalFd == -1) {
+        log(LOG_ERR, "signalfd failed!");
+        return false;
+    }
+
+    if(!Gpio::init()) {
+        log(LOG_ERR, "gpio initialisation failed!");
+        return false;
+    }
+
+    Devices devs;
+    Led led(LED_PIN);
+    GpioButton btn1(15);
+
+    if(!devs.isBigDiskConnected()) {
+        led.blinkQuickly();
+    }
+    else if(devs.isCopyAvailable()) {
+        led.blinkSlowly();
+    }
+    else {
+        led.on();
+    }
+
+    bool exit = false;
+    if(!isDaemon) {
+        log(LOG_INFO, "press Ctrl-C to quit");
+    }
+    while(!exit) {
+        fd_set readFsSet;
+        FD_ZERO(&readFsSet);
+        FD_SET(signalFd, &readFsSet);
+        FD_SET(devs.getUdevFd(), &readFsSet);
+
+        if(select(std::max(signalFd,devs.getUdevFd())+1, &readFsSet, NULL, NULL, NULL) == -1) {
+            log(LOG_ERR, "unable to listen file descriptors: %s", strerror(errno));
+            return false;
+        }
+        if(FD_ISSET(signalFd, &readFsSet)){
+            s = read(signalFd, &fdsi, sizeof(struct signalfd_siginfo));
+            if((fdsi.ssi_signo == SIGINT) && !isDaemon) {
+                printf("\n");
+            }
+            log(LOG_INFO, "signal catched, exiting");
+            exit = true;
+        }
+        else if(FD_ISSET(devs.getUdevFd(), &readFsSet)) {
+            devs.manageChanges();
+            if(!devs.isBigDiskConnected()) {
+                led.blinkQuickly();
+            }
+            else if(devs.isCopyAvailable()) {
+                led.blinkSlowly();
+            }
+            else {
+                led.on();
+            }
+        }
+    }
+    return true;
+}
 
 //manage linux capabilities to improve security
 bool updateRights() {
@@ -149,9 +227,8 @@ static void daemonize(){
 
     /* Create a new SID for the child process */
     sid = setsid();
-    if (sid < 0) {
-        log( LOG_ERR, "unable to create a new session, code %d (%s)",
-                errno, strerror(errno) );
+    if(sid < 0) {
+        log(LOG_ERR, "unable to create a new session, code %d (%s)", errno, strerror(errno) );
         exit(EXIT_FAILURE);
     }
 
@@ -173,84 +250,19 @@ static void daemonize(){
 }
 
 
-bool run() {
-    sigset_t mask;
-    struct signalfd_siginfo fdsi;
-    ssize_t s;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGQUIT);
-    sigaddset(&mask, SIGTERM);
-
-    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
-         log(LOG_ERR, "sigprocmask failed!");
-         return false;
-    }
-
-    int signalFd = signalfd(-1, &mask, 0);
-    if (signalFd == -1) {
-         log(LOG_ERR, "signalfd failed!");
-         return false;
-    }
-
-    Devices devs;
-    Led led(RPI_GPIO_P1_23);  //gpio11
-
-    if(!devs.isBigDiskConnected()) {
-        led.blinkQuickly();
-    }
-    else if(devs.isCopyAvailable()) {
-        led.blinkSlowly();
-    }
-    else {
-        led.on();
-    }
-
-    bool exit = false;
-    while(!exit) {
-        fd_set readFsSet;
-        FD_ZERO(&readFsSet);
-        FD_SET(signalFd, &readFsSet);
-        FD_SET(devs.getUdevFd(), &readFsSet);
-
-        if(select(std::max(signalFd,devs.getUdevFd())+1, &readFsSet, NULL, NULL, NULL) == -1) {
-            log(LOG_ERR, "unable to listen file descriptors: %s", strerror(errno));
-            return false;
-        }
-        if(FD_ISSET(signalFd, &readFsSet)){
-            s = read(signalFd, &fdsi, sizeof(struct signalfd_siginfo));
-            log(LOG_INFO, "signal catched, exiting");
-            exit = true;
-        }
-        else if(FD_ISSET(devs.getUdevFd(), &readFsSet)) {
-            devs.manageChanges();
-            if(!devs.isBigDiskConnected()) {
-                led.blinkQuickly();
-            }
-            else if(devs.isCopyAvailable()) {
-                led.blinkSlowly();
-            }
-            else {
-                led.on();
-            }
-        }
-    }
-    return true;
-}
-
 int main( int argc, char *argv[] ) {
     bool isDaemon = false;
-    for(int i = 0; i < argc; i++){
-    	if(strcmp(argv[i], "--daemon") == 0){
+    for(int i = 0; i < argc; i++) {
+    	if(strcmp(argv[i], "--daemon") == 0) {
       	    isDaemon = true;
 	    break;
     	}
     }
 
     bool useSysLog = isDaemon;
-    if(!isDaemon){
-        for(int i = 0; i < argc; i++){
-            if(strcmp(argv[i], "--syslog") == 0){
+    if(!isDaemon) {
+        for(int i = 0; i < argc; i++) {
+            if(strcmp(argv[i], "--syslog") == 0) {
       	        useSysLog = true;
 	        break;
     	    }
@@ -266,11 +278,14 @@ int main( int argc, char *argv[] ) {
     }
     log(LOG_INFO, "starting");
 
-    if(isDaemon){
+    if(isDaemon) {
         daemonize();
     }
+    else {
+        updateRights();
+    }
 
-    bool success = run();
+    bool success = run(isDaemon);
 
     log(LOG_NOTICE, "terminated");
     cleanLog();

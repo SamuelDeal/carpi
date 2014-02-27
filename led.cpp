@@ -7,11 +7,8 @@
 #include <errno.h>
 #include <cstring>
 
-#include <bcm2835.h>
-
 #include "led.hpp"
 #include "log.hpp"
-#include "config.h"
 
 const uint64_t Led::ON;
 const uint64_t Led::OFF;
@@ -21,27 +18,15 @@ const uint64_t Led::QUIT;
 const long Led::SLOW_TIME;
 const long Led::QUICK_TIME;
 
-Led::Led(unsigned short ledPin): _mut(PTHREAD_MUTEX_INITIALIZER) {
-    _pin = ledPin;
+Led::Led(int ledPin): _pin(ledPin), _mut(PTHREAD_MUTEX_INITIALIZER) {
     _isOn = false;
     _status = Led::OFF;
-
-#if !DISABLE_GPIO
-    if (!bcm2835_init()) {
-        log(LOG_ERR, "bcm init failed");
-    }
-    else {
-        bcm2835_gpio_fsel(ledPin, BCM2835_GPIO_FSEL_OUTP);
-    }
-#endif
 }
 
 Led::~Led() {
     _stopBlinking();
     _light(false);
-#if !DISABLE_GPIO
-    bcm2835_close();
-#endif
+    _pin.write(Gpio::low);
 }
 
 void Led::on() {
@@ -67,7 +52,6 @@ void Led::off() {
     pthread_mutex_unlock(&_mut);
     _light(false);
 }
-
 
 void Led::blinkSlowly() {
     pthread_mutex_lock(&_mut);
@@ -125,9 +109,7 @@ void Led::_light(bool value){
     if(_isOn == value){
        return;
     }
-#if !DISABLE_GPIO
-    bcm2835_gpio_write(_pin, value ? HIGH : LOW);
-#endif
+    _pin.write(value ? Gpio::high : Gpio::low);
     _isOn = value;
 }
 

@@ -1,4 +1,7 @@
-#include <stdio.h> 
+#ifndef _LOG_HPP
+#define _LOG_HPP
+
+#include <stdio.h>
 #include <syslog.h>
 
 extern void initLog(bool useSysLog);
@@ -17,3 +20,6 @@ extern bool __useSysLog;
          printf(msg "\n", ##__VA_ARGS__); \
       } \
    }
+
+#endif // _LOG_HPP
+

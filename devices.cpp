@@ -77,7 +77,7 @@ void Devices::_onAdded(udev_device *device) {
     if(devtype ==NULL || strcmp(devtype, "partition") != 0) {
         return;
     }
-    Devices::mountStatus status = _getStatus(device);
+    Devices::MountStatus status = _getStatus(device);
     const char* sysname = udev_device_get_sysname(device);
     bool mountFailure = false;
     const char* idFsLabelEnc = udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
@@ -148,7 +148,7 @@ void Devices::_checkSizes() {
     });
 }
 
-Devices::mountStatus Devices::_getStatus(udev_device *device) const { 
+Devices::MountStatus Devices::_getStatus(udev_device *device) const { 
     const char* idFsLabelEnc = udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
     if(idFsLabelEnc == NULL) {
         return Devices::system;
@@ -194,7 +194,7 @@ Devices::mountStatus Devices::_getStatus(udev_device *device) const {
     return Devices::umounted;
 }
 
-bool Devices::_mount(udev_device *device, bool readOnly, Devices::mountStatus status) const {
+bool Devices::_mount(udev_device *device, bool readOnly, Devices::MountStatus status) const {
     if(status == Devices::undefined) {
         status = _getStatus(device);
     }
@@ -257,7 +257,7 @@ bool Devices::_mount(udev_device *device, bool readOnly, Devices::mountStatus st
     return true;
 }
 
-bool Devices::_umount(udev_device *device, Devices::mountStatus status) const {
+bool Devices::_umount(udev_device *device, Devices::MountStatus status) const {
     if(status == Devices::undefined) {
         status = _getStatus(device);
     }

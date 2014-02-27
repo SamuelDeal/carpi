@@ -1,5 +1,10 @@
+#ifndef _LED_HPP
+#define _LED_HPP
+
 #include <pthread.h>
 #include <stdint.h>
+
+#include "gpio.hpp"
 
 class Led {
     public:
@@ -8,7 +13,7 @@ class Led {
        static const uint64_t BLINK_SLOWLY = 3;
        static const uint64_t BLINK_QUICKLY = 4;
 
-       Led(unsigned short ledPin);
+       Led(int ledPin);
        ~Led();
        void on();
        void off();
@@ -20,12 +25,12 @@ class Led {
        static const long SLOW_TIME = 300000;
        static const long QUICK_TIME = 50000;
 
-       unsigned short _pin;
        int _efd;
        pthread_t _thread;
        pthread_mutex_t _mut;
        bool _isOn;
        uint64_t _status;
+       GpioOut _pin;
 
        static void* _startBlinking(void*);
        void _light(bool);
@@ -33,3 +38,5 @@ class Led {
        bool _blinking();
        void _blink();
 };
+
+#endif // _LED_HPP
