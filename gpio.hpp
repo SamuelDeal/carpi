@@ -2,14 +2,11 @@
 #define _GPIO_HPP_
 
 #include <stdint.h>
-
-class GpioOut;
-class GpioButton;
+#include <sys/timerfd.h>
 
 class Gpio {
     public:
         static bool init();
-        ~Gpio();
 
         enum Value {
             low = 0,
@@ -21,28 +18,10 @@ class Gpio {
             output
         };
 
-    protected:
-        friend class GpioButton;
-        friend class GpioOut;
-
-        static Gpio& get() {
-            static Gpio instance;
-            return instance;
-        };
-        void writePin(int pin, Gpio::Value);
-        void setPinMode(int pin, Gpio::Mode);
-
-
-    protected:
-        bool _initFailed;
-        int *_pins;
-        volatile uint32_t *_gpioMem;
-        int getBoardRev() const;
-
-    private:
+    private: //not implemented, forbidden call
         Gpio();
-        Gpio(Gpio const&); //not implemented, forbidden call
-        void operator=(Gpio const&); //not implemented, forbidden call
+        Gpio(Gpio const&);
+        void operator=(Gpio const&);
 };
 
 class GpioOut {
@@ -55,25 +34,41 @@ class GpioOut {
     protected:
         int _pin;
 };
+class GpioButtonManager;   //internal classes, not usable
 
 class GpioButton {
     public:
-        GpioButton(int pin);
+        GpioButton(int pin, bool rebounce, bool defaultHight = false);
         ~GpioButton();
 
         int getEventFd() const;
         bool isValid() const;
 
-        static const uint64_t CLICK = 1;
-        static const uint64_t LONG_PUSH = 2;
-        static const uint64_t LONG_RELEASE = 3;
+        static const uint64_t PRESS = 1;
+        static const uint64_t RELEASE = 2;
+        static const uint64_t LONG_PRESS = 3;
+        static const uint64_t LONG_RELEASE = 4;
 
     protected:
+        friend class GpioButtonManager;
+
         int _pin;
-        int _efd;
+        int _eventFd;
         int _sysFd;
-        bool _exported;
+        int _timerFd;
         bool _initFailed;
+        Gpio::Value _status;
+        bool _defaultHigh;
+        unsigned int _integrator;
+        unsigned int _stable;
+        bool _debouncing;
+        bool _rebounce;
+        bool _long; // is thenbutton pressed for long time ?
+        itimerspec _interval;
+
+        Gpio::Value _integrate(Gpio::Value input);
+        void _update();
+        void _onDelay();
 };
 
 #endif // _GPIO_HPP

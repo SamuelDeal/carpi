@@ -9,6 +9,7 @@
 
 #include "led.hpp"
 #include "log.hpp"
+#include "fd_utils.hpp"
 
 const uint64_t Led::ON;
 const uint64_t Led::OFF;
@@ -18,7 +19,7 @@ const uint64_t Led::QUIT;
 const long Led::SLOW_TIME;
 const long Led::QUICK_TIME;
 
-Led::Led(int ledPin): _pin(ledPin), _mut(PTHREAD_MUTEX_INITIALIZER) {
+Led::Led(int ledPin): _pin(ledPin) {
     _isOn = false;
     _status = Led::OFF;
 }
@@ -30,79 +31,63 @@ Led::~Led() {
 }
 
 void Led::on() {
-    pthread_mutex_lock(&_mut);
+    const std::lock_guard<std::mutex> lock(_mut);
     if(_status == Led::ON){
-        pthread_mutex_unlock(&_mut);
         return;
     }
     _stopBlinking();
     _status = Led::ON;
-    pthread_mutex_unlock(&_mut);
     _light(true);
 }
 
 void Led::off() {
-    pthread_mutex_lock(&_mut);
+    const std::lock_guard<std::mutex> lock(_mut);
     if(_status == Led::OFF){
-        pthread_mutex_unlock(&_mut);
         return;
     }
     _stopBlinking();
     _status = Led::OFF;
-    pthread_mutex_unlock(&_mut);
     _light(false);
 }
 
 void Led::blinkSlowly() {
-    pthread_mutex_lock(&_mut);
+    const std::lock_guard<std::mutex> lock(_mut);
     if(_status == Led::BLINK_SLOWLY){
-        pthread_mutex_unlock(&_mut);
         return;
     }
     if(_blinking()){
         _status = Led::BLINK_SLOWLY;
-        size_t s = write(_efd, &Led::BLINK_SLOWLY, sizeof(uint64_t));
-        if(s != sizeof(uint64_t)){
-            log(LOG_ERR, "write failed");
-        }
+        sendEvent(_efd, Led::BLINK_SLOWLY);
     }
     else{
         _status = Led::BLINK_SLOWLY;
-        _efd = eventfd(0, 0);
+        _efd = eventfd(0, EFD_NONBLOCK);
         if(_efd == -1) {
             log(LOG_ERR, "eventfd failed: %s", strerror(errno));
-            pthread_mutex_unlock(&_mut);
             return;
         }
         int result = pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
-    pthread_mutex_unlock(&_mut);
 }
 
 void Led::blinkQuickly() {
-    pthread_mutex_lock(&_mut);
+    const std::lock_guard<std::mutex> lock(_mut);
     if(_status == Led::BLINK_QUICKLY){
-        pthread_mutex_unlock(&_mut);
         return;
     }
     if(_blinking()){
         _status = Led::BLINK_QUICKLY;
-        size_t s = write(_efd, &Led::BLINK_QUICKLY, sizeof(uint64_t));
-        if(s != sizeof(uint64_t)){
-            log(LOG_ERR, "write failed");
-        }
+        sendEvent(_efd, Led::BLINK_QUICKLY);
     }
     else{
         _status = Led::BLINK_QUICKLY;
-        _efd = eventfd(0, 0);
+        _efd = eventfd(0, EFD_NONBLOCK);
         if(_efd == -1) {
             log(LOG_ERR, "eventfd failed: %s", strerror(errno));
-            pthread_mutex_unlock(&_mut);
             return;
         }
         int result = pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
-    pthread_mutex_unlock(&_mut);
 }
 
 void Led::_light(bool value){
@@ -127,15 +112,11 @@ void Led::_stopBlinking() {
     }
     else{
         pthread_join(_thread, NULL);
+        close(_efd);
     }
 }
 
 void* Led::_startBlinking(void*led){
-    ((Led*)led)->_blink();
-    return NULL;
-}
-
-void Led::_blink(){
     signal(SIGCHLD,SIG_DFL); // A child process dies
     signal(SIGTSTP,SIG_IGN); // Various TTY signals
     signal(SIGTTOU,SIG_IGN);
@@ -145,6 +126,11 @@ void Led::_blink(){
     signal(SIGQUIT,SIG_IGN); // ignore SIGTERM
     signal(SIGTERM,SIG_IGN); // ignore SIGTERM
 
+    ((Led*)led)->_blink();
+    return NULL;
+}
+
+void Led::_blink(){
     long time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
     _light(!_isOn);
     bool exit = false;
@@ -168,10 +154,8 @@ void Led::_blink(){
             _light(!_isOn);
         }
         else {
-            uint64_t value;
-            size_t s = read(_efd, &value, sizeof(uint64_t));
-            if(s != sizeof(uint64_t)){
-                log(LOG_ERR, "read() failed");
+            uint64_t value = readEvent(_efd);
+            if(value == 0) {
                 exit = true;
             }
             else if(value == Led::QUIT){

@@ -5,8 +5,8 @@ all: carpi
 SRCS = $(shell find . -type f -name '*.cpp')
 OBJS = $(SRCS:.cpp=.o)
 
-CPPFLAGS +=  -std=c++0x 
-LDFLAGS += -ludev -lpthread -lcap
+CPPFLAGS +=  -std=c++0x -g 
+LDFLAGS += -ludev -lpthread -lcap -g
 LIBS += 
 CC = 'g++'
 LINKER = 'g++'
@@ -24,10 +24,10 @@ clean_tmp:
 	@echo "temporary files cleaned"
 
 %.o: %.cpp 
-	$(CC) -O3 -D_REENTRANT -c $(CPPFLAGS) -o $@ $<
+	$(CC) -D_REENTRANT -c $(CPPFLAGS) -o $@ $<
 	
 carpi: $(OBJS)
-	$(LINKER) -O3 -o $@ $^ $(LIBS) $(LDFLAGS)
+	$(LINKER) -o $@ $^ $(LIBS) $(LDFLAGS)
 
 deps: $(SOURCES)
 	$(CC) -MD -E $(SOURCES) > /dev/null

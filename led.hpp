@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <stdint.h>
+#include <mutex>
 
 #include "gpio.hpp"
 
@@ -27,7 +28,7 @@ class Led {
 
        int _efd;
        pthread_t _thread;
-       pthread_mutex_t _mut;
+       std::mutex _mut;
        bool _isOn;
        uint64_t _status;
        GpioOut _pin;
