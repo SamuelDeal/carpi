@@ -1,29 +1,9 @@
 #ifndef _GPIO_CORE_HPP
 #define _GPIO_CORE_HPP
 
+#include <stdint.h>
+
 #include "gpio.hpp"
-
-// this class
-#include <stdio.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <cstring>
-#include <time.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/mman.h>
-#include <sys/eventfd.h>
-#include <sys/ioctl.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <errno.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <map>
-#include <list>
-
-#include "log.hpp"
-#include "config.h"
 
 // this class should not be used directly
 class GpioCore {
@@ -32,6 +12,12 @@ class GpioCore {
         friend class GpioOut;
         friend class Gpio;
 
+        enum PullStatus {
+            pullUp = 2,
+            pullDown = 1,
+            pullOff = 0
+        };
+
         static GpioCore& get() {
             static GpioCore instance;
             return instance;
@@ -39,9 +25,7 @@ class GpioCore {
         void writePin(int pin, Gpio::Value);
         void setPinMode(int pin, Gpio::Mode);
         Gpio::Value readPin(int pin);
-        bool exportPin(int pin);
-        bool unexportPin(int pin);
-        int getPinFd(int pin);
+        void setPull(int pin, GpioCore::PullStatus);
 
     protected:
         bool _initFailed;

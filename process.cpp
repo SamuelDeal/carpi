@@ -1,16 +1,11 @@
 #include <stdlib.h>
-#include <string.h>
-#include <algorithm>
+#include <cstring>
 #include <errno.h>
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <pwd.h>
 #include <signal.h>
-#include <sys/signalfd.h>
-#include <sys/select.h>
 #include <sys/capability.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
 
@@ -71,6 +66,7 @@ bool updateRights() {
         log(LOG_ERR, "unable to free capabilities: %s", strerror(errno));
         return false;
     }
+    return true;
 }
 
 static void child_handler(int signum){

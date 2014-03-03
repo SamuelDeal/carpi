@@ -8,7 +8,6 @@
 #include <sys/mount.h>
 #include <sys/statvfs.h>
 
-
 #include "config.h"
 #include "log.hpp"
 
@@ -78,7 +77,6 @@ void Devices::_onAdded(udev_device *device) {
         return;
     }
     Devices::MountStatus status = _getStatus(device);
-    const char* sysname = udev_device_get_sysname(device);
     bool mountFailure = false;
     const char* idFsLabelEnc = udev_device_get_property_value(device, "ID_FS_LABEL_ENC");
     if(idFsLabelEnc == NULL){
@@ -278,7 +276,7 @@ bool Devices::_umount(const char* path) const {
         log(LOG_ERR, "umount %s failed: %s", path, strerror(errno));
         return false;
     }
-    log(LOG_INFO, "%s umounted", path, strerror(errno));
+    log(LOG_INFO, "%s umounted", path);
 
     int result = rmdir(path);
     if((result != 0) && (errno != ENOENT)){

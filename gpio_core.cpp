@@ -1,21 +1,16 @@
 #include "gpio_core.hpp"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <ctype.h>
 #include <cstring>
-#include <errno.h>
-#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/time.h>
 
 #include "config.h"
-#include "fd_utils.hpp"
-
-
-
-
 
 #define	BLOCK_SIZE		(4*1024)
-
+#define	GPPUD	37
 #define BCM2708_PERI_BASE 0x20000000
 #define GPIO_BASE   (BCM2708_PERI_BASE + 0x00200000)
 
@@ -82,19 +77,14 @@ static uint8_t gpioToShift [] = {
 static uint8_t gpioToGPLEV [] = {
   13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
   14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
-} ;
+};
 
-//save exported states of gpio
-static bool gpioExported [] = {
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-  false, false, false, false, false, false, false, false,
-} ;
+//(Word) offset to the Pull Up Down Clock regsiter
+static uint8_t gpioToPUDCLK [] = {
+  38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,
+  39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,
+};
+
 
 
 GpioCore::GpioCore() {
@@ -178,7 +168,7 @@ Gpio::Value GpioCore::readPin(int pin) {
 
 void GpioCore::setPinMode(int pin, Gpio::Mode mode) {
     //  register int barrier ;
-    int fSel, shift, alt ;
+    int fSel, shift;
 
     pin &= 63 ;
 
@@ -193,72 +183,30 @@ void GpioCore::setPinMode(int pin, Gpio::Mode mode) {
     }
 }
 
-bool GpioCore::exportPin(int pin) {
-    if(gpioExported[pin]){
-        return true;
-    }
 
-    FILE *fd;
-    char fName[PATH_MAX];
-    // Export the pin and set direction to input
-    if((fd = fopen("/sys/class/gpio/export", "w")) == NULL) {
-        log(LOG_ERR, "unable to open GPIO export interface for pin %d: %s", pin, strerror(errno));
-        return false;
-    }
-    fprintf(fd, "%d\n", pin);
-    fclose(fd);
-    gpioExported[pin];
-    return true;
-}
-
-bool GpioCore::unexportPin(int pin) {
-    if(!gpioExported[pin]) {
-        return true;
-    }
-
-    FILE *fd;
-    if((fd = fopen("/sys/class/gpio/unexport", "w")) == NULL) {
-        log(LOG_ERR, "unable to unexport GPIO %d: %s", strerror(errno));
-        return false;
-    }
-    fprintf(fd, "%d\n", pin);
-    fclose(fd);
-    gpioExported[pin] = false;
-    return true;
-}
-
-int GpioCore::getPinFd(int pin) {
-    if(!exportPin(pin)) {
-        return -1;
-    }
-
-    FILE *fd;
-    char fName[PATH_MAX];
-
-    sprintf(fName, "/sys/class/gpio/gpio%d/direction", pin);
-    if((fd = fopen(fName, "w")) == NULL) {
-        log(LOG_ERR, "unable to open GPIO direction interface for pin %d: %s", pin, strerror(errno));
-        return -1;
-    }
-    fprintf(fd, "in\n");
-    fclose(fd);
-
-    sprintf(fName, "/sys/class/gpio/gpio%d/edge", pin);
-    if((fd = fopen(fName, "w")) == NULL) {
-        log(LOG_ERR, "unable to open GPIO edge interface for pin %d: %s", pin, strerror (errno));
-        return -1;
-    }
-    fprintf(fd, "both\n");
-    fclose(fd);
-
-    int result = -1;
-    sprintf(fName, "/sys/class/gpio/gpio%d/value", pin);
-    if((result = open(fName, O_RDWR)) < 0) {
-        log(LOG_ERR, "unable to read gpio %d status: %s", pin, strerror(errno));
-        return -1;
-    }
-    clearReads(result);
-    return result;
+void delayMicroseconds (unsigned int howLong) {
+  struct timeval tNow, tLong, tEnd ; 
+  gettimeofday (&tNow, NULL) ; 
+  tLong.tv_sec = howLong / 1000000 ; 
+  tLong.tv_usec = howLong % 1000000 ; 
+  timeradd (&tNow, &tLong, &tEnd) ; 
+  while (timercmp (&tNow, &tEnd, <))
+    gettimeofday (&tNow, NULL) ;
 }
 
 
+void GpioCore::setPull(int pin, GpioCore::PullStatus pull) {
+  int pud = (int)pull;
+  pin &= 63 ;
+  pud &=  3 ;
+
+  *(_gpioMem + GPPUD) = pud;
+  delayMicroseconds (5) ;
+  *(_gpioMem + gpioToPUDCLK [pin]) = 1 << (pin & 31);
+  delayMicroseconds (5) ;
+
+  *(_gpioMem + GPPUD) = 0 ;
+  delayMicroseconds (5) ;
+  *(_gpioMem + gpioToPUDCLK [pin]) = 0;
+  delayMicroseconds (5) ;
+}

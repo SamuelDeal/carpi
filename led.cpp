@@ -1,13 +1,10 @@
-#include <pthread.h>
+#include "led.hpp"
+
 #include <sys/eventfd.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <signal.h>
 #include <errno.h>
 #include <cstring>
 
-#include "led.hpp"
 #include "log.hpp"
 #include "fd_utils.hpp"
 
@@ -61,12 +58,12 @@ void Led::blinkSlowly() {
     }
     else{
         _status = Led::BLINK_SLOWLY;
-        _efd = eventfd(0, EFD_NONBLOCK);
+        _efd = eventfd(0, 0);
         if(_efd == -1) {
             log(LOG_ERR, "eventfd failed: %s", strerror(errno));
             return;
         }
-        int result = pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
+        pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
 }
 
@@ -81,12 +78,12 @@ void Led::blinkQuickly() {
     }
     else{
         _status = Led::BLINK_QUICKLY;
-        _efd = eventfd(0, EFD_NONBLOCK);
+        _efd = eventfd(0, 0);
         if(_efd == -1) {
             log(LOG_ERR, "eventfd failed: %s", strerror(errno));
             return;
         }
-        int result = pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
+        pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
 }
 

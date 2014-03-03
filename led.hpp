@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <mutex>
 
-#include "gpio.hpp"
+#include "gpio_out.hpp"
 
 class Led {
     public:

@@ -1,36 +1,23 @@
-#include <stdlib.h>
-#include <string.h>
-#include <algorithm>
-#include <errno.h>
-
-#include <unistd.h>
-#include <fcntl.h>
-#include <pwd.h>
+#include <cstring>
 #include <signal.h>
 #include <sys/signalfd.h>
-#include <sys/select.h>
-#include <sys/capability.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/prctl.h>
 
-#include "process.hpp"
 #include "config.h"
+#include "process.hpp"
 #include "log.hpp"
 #include "led.hpp"
 #include "devices.hpp"
 #include "gpio.hpp"
+#include "gpio_out.hpp"
+#include "gpio_button.hpp"
 #include "fd_utils.hpp"
 
 
 bool run(bool isDaemon) {
     sigset_t mask;
     struct signalfd_siginfo fdsi;
-    ssize_t s;
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGQUIT);
-    sigaddset(&mask, SIGTERM);
 
     if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
          log(LOG_ERR, "sigprocmask failed!");
@@ -50,7 +37,7 @@ bool run(bool isDaemon) {
 
     Devices devs;
     Led led(LED_PIN);
-    GpioButton btn1(15, false);
+    GpioButton btn1(23, true);
     if(!btn1.isValid()) {
         log(LOG_ERR, "btn init failed");
         return false;
@@ -85,7 +72,7 @@ bool run(bool isDaemon) {
             return false;
         }
         if(FD_ISSET(signalFd, &readFsSet)){
-            s = read(signalFd, &fdsi, sizeof(struct signalfd_siginfo));
+            read(signalFd, &fdsi, sizeof(struct signalfd_siginfo));
             if((fdsi.ssi_signo == SIGINT) && !isDaemon) {
                 printf("\n");
             }

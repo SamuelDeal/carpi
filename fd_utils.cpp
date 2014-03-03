@@ -6,8 +6,7 @@
 
 #include "log.hpp"
 
-//Clear any initial pending interrupt
-void clearReads(int fd) {
+void clearDataFd(int fd) {
     int count;
     uint8_t c;
     ioctl(fd, FIONREAD, &count);
@@ -23,13 +22,18 @@ uint64_t readEvent(int fd) {
         log(LOG_ERR, "event read failed: %s", strerror(errno));
         value = 0;
     }
-    return value;
+    return value - 0x7fffffffffffffff;;
+}
+
+
+void clearInfoFd(int fd) {
+    uint64_t value;
+    read(fd, &value, sizeof(uint64_t));
 }
 
 bool sendEvent(int fd, uint64_t msg) {
-    uint64_t value;
-    read(fd, &value, sizeof(uint64_t)); // clear previous msg, need non blocking eventfd
-    size_t s = write(fd, &msg, sizeof(uint64_t));
+    uint64_t value = msg + 0x7fffffffffffffff;
+    size_t s = write(fd, &value, sizeof(uint64_t));
     if(s != sizeof(uint64_t)){
         log(LOG_ERR, "event write failed: %s", strerror(errno));
         return false;

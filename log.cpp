@@ -4,7 +4,7 @@
 #include "config.h"
 
 
-bool __useSysLog = false; 
+bool __useSysLog = false;
 
 void initLog(bool useSysLog){
     __useSysLog = useSysLog;
