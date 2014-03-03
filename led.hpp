@@ -7,6 +7,9 @@
 
 #include "gpio_out.hpp"
 
+
+//TODO: perf optim with poll, or better: pwn
+//TODO: good error management
 class Led {
     public:
        static const uint64_t ON = 1;

@@ -103,13 +103,18 @@ void Led::_stopBlinking() {
     if(!_blinking()){
         return;
     }
-    size_t s = write(_efd, &Led::QUIT, sizeof(uint64_t));
-    if(s != sizeof(uint64_t)){
-        log(LOG_ERR, "write failed");
+    sendEvent(_efd, Led::QUIT);
+
+    //wait thread for 3sec
+    timespec ts;
+    if(clock_gettime(CLOCK_REALTIME, &ts) == -1) {
+        log(LOG_ERR, "clock gettime failed");
+        return;
     }
-    else{
-        pthread_join(_thread, NULL);
-        close(_efd);
+    ts.tv_sec += 3;
+    int joined = pthread_timedjoin_np(_thread, NULL, &ts);
+    if(joined != 0) {
+        log(LOG_ERR, "unable to join the thread");
     }
 }
 
@@ -131,7 +136,7 @@ void Led::_blink(){
     long time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
     _light(!_isOn);
     bool exit = false;
-    while(!exit){
+    while(!exit) {
         fd_set rfds;
         struct timeval tv;
         int retval;
@@ -156,10 +161,10 @@ void Led::_blink(){
                 exit = true;
             }
             else if(value == Led::QUIT){
-	        exit = true;
+    	        exit = true;
             }
-	    else{
-	        time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+	        else{
+	            time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
                 if(tv.tv_usec > time){
                     time = tv.tv_usec - time;
                 }
@@ -170,3 +175,6 @@ void Led::_blink(){
         }
     }
 }
+
+
+

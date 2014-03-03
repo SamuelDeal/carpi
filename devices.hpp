@@ -4,6 +4,8 @@
 #include <libudev.h>
 #include <list>
 
+//TODO: perf: use async forblong operation: mounting! , udev scan? , fstab and mtab scan ?
+//TODO: good error managment
 class Devices {
     public:
        Devices();

@@ -108,7 +108,6 @@ void GpioButton::_update() {
     if(((_status == Gpio::high) && !_defaultHigh) || ((_status == Gpio::low) && _defaultHigh)) {
         sendEvent(_eventFd, GpioButton::PRESS);
 
-        log(LOG_INFO, "button: init timer");
         GpioButtonManager::onButtonTimerChanged();
         _interval.it_value.tv_sec = BUTTON_DELAY / 1000000;
         _interval.it_value.tv_nsec = (BUTTON_DELAY % 1000000) * 1000;
@@ -116,7 +115,6 @@ void GpioButton::_update() {
         _interval.it_interval.tv_sec = next / 1000000000;
         _interval.it_interval.tv_nsec = next % 1000000000;
 
-        log(LOG_INFO, "button: timer: %d,%d - %d,%d", _interval.it_value.tv_sec, _interval.it_value.tv_nsec, _interval.it_interval.tv_sec, _interval.it_interval.tv_nsec);
         _timerFd = timerfd_create(CLOCK_MONOTONIC, 0);
         timerfd_settime(_timerFd, 0, &_interval, NULL);
         if(_timerFd == -1) {
@@ -125,7 +123,6 @@ void GpioButton::_update() {
     }
     else {
         sendEvent(_eventFd, (_long ? GpioButton::LONG_RELEASE : GpioButton::RELEASE));
-        log(LOG_INFO, "button: close timer 1");
         GpioButtonManager::onButtonTimerChanged();
         close(_timerFd);
         _timerFd = -1;
@@ -137,18 +134,15 @@ void GpioButton::_onDelay() {
      sendEvent(_eventFd, (_rebounce ? GpioButton::PRESS : GpioButton::LONG_PRESS));
 
      if(_rebounce) {
-             log(LOG_INFO, "button: init timer");
          long next = computeNextDelay(_interval.it_value.tv_nsec);
          _interval.it_value.tv_sec = next / 1000000000;
          _interval.it_value.tv_nsec = next % 1000000000;
          next = computeNextDelay(next);
          _interval.it_interval.tv_sec = next / 1000000000;
          _interval.it_interval.tv_nsec = next % 1000000000;
-                 log(LOG_INFO, "button: timer: %d,%d - %d,%d", _interval.it_value.tv_sec, _interval.it_value.tv_nsec, _interval.it_interval.tv_sec, _interval.it_interval.tv_nsec);
          timerfd_settime(_timerFd, 0, &_interval, NULL);
      }
      else {
-         log(LOG_INFO, "button: close timer 3");
          GpioButtonManager::onButtonTimerChanged();
          close(_timerFd);
          _timerFd = -1;

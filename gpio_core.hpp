@@ -5,6 +5,12 @@
 
 #include "gpio.hpp"
 
+//TODO: manage errors
+//TODO: check if it's running on a raspberry pi
+//TODO: allow disabling by config.h macro
+//TODO: add credits
+//TODO: add pwn for led
+
 // this class should not be used directly
 class GpioCore {
     protected:

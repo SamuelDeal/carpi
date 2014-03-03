@@ -12,7 +12,8 @@
 #include "gpio_button.hpp"
 #include "fd_utils.hpp"
 
-
+//TODO: better error management
+//TODO: handle sigterm with sigaction, off the led and mount drive in r/o mode
 bool run(bool isDaemon) {
     sigset_t mask;
     struct signalfd_siginfo fdsi;

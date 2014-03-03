@@ -33,6 +33,7 @@ class GpioButtonManager {
 
         int _initFdList(pollfd*);
         void _resetLocalList();
+        void _initTimerFd();
 
         int _inFd;
         int _timerFd;
