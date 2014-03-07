@@ -1,6 +1,5 @@
 #include "gpio_button_manager.hpp"
 
-#include <sys/eventfd.h>
 #include <poll.h>
 #include <errno.h>
 #include <signal.h>
@@ -8,12 +7,11 @@
 
 #include "gpio_button.hpp"
 #include "log.hpp"
-#include "fd_utils.hpp"
 #include "config.h"
 
-const uint64_t GpioButtonManager::EXIT;
-const uint64_t GpioButtonManager::BUTTON_CHANGED;
-const uint64_t GpioButtonManager::BUTTON_LIST_CHANGED;
+const char GpioButtonManager::EXIT;
+const char GpioButtonManager::BUTTON_CHANGED;
+const char GpioButtonManager::BUTTON_LIST_CHANGED;
 
 std::mutex GpioButtonManager::_mut;
 GpioButtonManager* GpioButtonManager::_instance = NULL;
@@ -35,7 +33,7 @@ bool GpioButtonManager::add(GpioButton *btn) {
         }
         _btns[pin] = btn;
     }
-    sendEvent(_instance->_inFd, GpioButtonManager::BUTTON_LIST_CHANGED);
+    _instance->_pipe.send(GpioButtonManager::BUTTON_LIST_CHANGED);
     return true;
 }
 
@@ -60,7 +58,7 @@ void GpioButtonManager::remove(GpioButton *btn) {
         delete toDelete;
     }
     else {
-        sendEvent(_instance->_inFd, GpioButtonManager::BUTTON_LIST_CHANGED);
+        _instance->_pipe.send(GpioButtonManager::BUTTON_LIST_CHANGED);
     }
 }
 
@@ -68,16 +66,10 @@ void GpioButtonManager::onButtonTimerChanged() {
     if(_instance == NULL) {
         return;
     }
-    sendEvent(_instance->_inFd, GpioButtonManager::BUTTON_CHANGED);
+   _instance->_pipe.send(GpioButtonManager::BUTTON_CHANGED);
 }
 
 GpioButtonManager::GpioButtonManager() {
-    _inFd = eventfd(0, 0);
-    if(_inFd == -1) {
-        log(LOG_ERR, "unable to call eventfd to GPIO button add/remove: %s",  strerror(errno));
-        return;
-    }
-
     _timerFd = timerfd_create(CLOCK_MONOTONIC, 0);
     if(_timerFd == -1) {
         log(LOG_ERR, "unable to create timer for debouncing: %s",  strerror(errno));
@@ -88,18 +80,15 @@ GpioButtonManager::GpioButtonManager() {
 }
 
 GpioButtonManager::~GpioButtonManager() {
-    if(_inFd != -1) {
-        sendEvent(_inFd, GpioButtonManager::EXIT);
+    _pipe.send(GpioButtonManager::EXIT);
 
-        //wait the thread for 3sec
-        timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 3;
-        int joined = pthread_timedjoin_np(_thread, NULL, &ts);
-        if(joined != 0) {
-            log(LOG_ERR, "unable to join the button manager thread");
-        }
-        close(_inFd);
+    //wait the thread for 3sec
+    timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 3;
+    int joined = pthread_timedjoin_np(_thread, NULL, &ts);
+    if(joined != 0) {
+        log(LOG_ERR, "unable to join the button manager thread");
     }
     if(_timerFd != -1){
         close(_timerFd);
@@ -123,7 +112,8 @@ void* GpioButtonManager::_startRun(void *manager) {
     signal(SIGINT,SIG_IGN); // ignore SIGTERM
     signal(SIGQUIT,SIG_IGN); // ignore SIGTERM
     signal(SIGTERM,SIG_IGN); // ignore SIGTERM
-
+    int oldstate;
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate);
     ((GpioButtonManager*)manager)->_run();
     return NULL;
 }
@@ -139,7 +129,7 @@ void GpioButtonManager::_run(){
            return;
         }
         if(fdList[0].revents == POLLIN) {
-            uint64_t msg = readEvent(_inFd);
+            char msg = _pipe.read();
             if(msg == GpioButtonManager::EXIT){
                 return;
             }
@@ -149,7 +139,7 @@ void GpioButtonManager::_run(){
             fdCount = _initFdList(fdList);
         }
         if(fdList[1].revents == POLLIN) { // tick
-            clearInfoFd(_timerFd);
+            _clearTimer(_timerFd);
             //all debouncing buttons have to read their value
             for(GpioButton* btn : _localBtns) {
                 btn->_update();
@@ -157,7 +147,7 @@ void GpioButtonManager::_run(){
         }
         for(int i = 2; i < fdCount; i++) {
             if(fdList[i].revents == POLLIN) {
-                clearInfoFd(fdList[i].fd);
+                _clearTimer(fdList[i].fd);
                 _localBtns[i-2]->_onDelay();
             }
         }
@@ -169,7 +159,7 @@ int GpioButtonManager::_initFdList(pollfd *fdList) {
     memset(fdList, 0, sizeof(pollfd)*66);
     int fdCount = 2;
 
-    fdList[0].fd = _inFd;
+    fdList[0].fd = _pipe.getReadFd();
     fdList[0].events = POLLIN;
     fdList[1].fd = _timerFd;
     fdList[1].events = POLLIN;
@@ -193,3 +183,11 @@ void GpioButtonManager::_resetLocalList() {
         _localBtns[i++] = pair.second;
     }
 }
+
+void GpioButtonManager::_clearTimer(int timerFd) {
+    uint64_t data;
+    read(timerFd, &data, sizeof(uint64_t));
+}
+
+
+

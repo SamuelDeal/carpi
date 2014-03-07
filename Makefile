@@ -5,8 +5,8 @@ all: carpi
 SRCS = $(shell find . -type f -name '*.cpp')
 OBJS = $(SRCS:.cpp=.o)
 
-CPPFLAGS += -std=c++0x -Wall -g 
-LDFLAGS += -ludev -lpthread -lcap -Wall -g
+CPPFLAGS += -std=c++0x -Wall -O3 
+LDFLAGS += -ludev -lpthread -lcap -lmpdclient -Wall -O3
 LIBS += 
 CC = 'g++'
 LINKER = 'g++'

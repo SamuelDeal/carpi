@@ -1,18 +1,16 @@
 #include "led.hpp"
 
-#include <sys/eventfd.h>
 #include <signal.h>
 #include <errno.h>
 #include <cstring>
 
 #include "log.hpp"
-#include "fd_utils.hpp"
 
-const uint64_t Led::ON;
-const uint64_t Led::OFF;
-const uint64_t Led::BLINK_SLOWLY;
-const uint64_t Led::BLINK_QUICKLY;
-const uint64_t Led::QUIT;
+const char Led::ON;
+const char Led::OFF;
+const char Led::BLINK_SLOWLY;
+const char Led::BLINK_QUICKLY;
+const char Led::QUIT;
 const long Led::SLOW_TIME;
 const long Led::QUICK_TIME;
 
@@ -54,15 +52,10 @@ void Led::blinkSlowly() {
     }
     if(_blinking()){
         _status = Led::BLINK_SLOWLY;
-        sendEvent(_efd, Led::BLINK_SLOWLY);
+        _pipe.send(Led::BLINK_SLOWLY);
     }
     else{
         _status = Led::BLINK_SLOWLY;
-        _efd = eventfd(0, 0);
-        if(_efd == -1) {
-            log(LOG_ERR, "eventfd failed: %s", strerror(errno));
-            return;
-        }
         pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
 }
@@ -74,15 +67,10 @@ void Led::blinkQuickly() {
     }
     if(_blinking()){
         _status = Led::BLINK_QUICKLY;
-        sendEvent(_efd, Led::BLINK_QUICKLY);
+        _pipe.send(Led::BLINK_QUICKLY);
     }
     else{
         _status = Led::BLINK_QUICKLY;
-        _efd = eventfd(0, 0);
-        if(_efd == -1) {
-            log(LOG_ERR, "eventfd failed: %s", strerror(errno));
-            return;
-        }
         pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
 }
@@ -103,18 +91,18 @@ void Led::_stopBlinking() {
     if(!_blinking()){
         return;
     }
-    sendEvent(_efd, Led::QUIT);
+    _pipe.send(Led::QUIT);
 
     //wait thread for 3sec
     timespec ts;
     if(clock_gettime(CLOCK_REALTIME, &ts) == -1) {
         log(LOG_ERR, "clock gettime failed");
-        return;
     }
-    ts.tv_sec += 3;
-    int joined = pthread_timedjoin_np(_thread, NULL, &ts);
-    if(joined != 0) {
-        log(LOG_ERR, "unable to join the thread");
+    else{ ts.tv_sec += 3;
+        int joined = pthread_timedjoin_np(_thread, NULL, &ts);
+        if(joined != 0) {
+            log(LOG_ERR, "unable to join the thread");
+        }
     }
 }
 
@@ -127,6 +115,8 @@ void* Led::_startBlinking(void*led){
     signal(SIGINT,SIG_IGN); // ignore SIGTERM
     signal(SIGQUIT,SIG_IGN); // ignore SIGTERM
     signal(SIGTERM,SIG_IGN); // ignore SIGTERM
+    int oldstate;
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate);
 
     ((Led*)led)->_blink();
     return NULL;
@@ -142,11 +132,11 @@ void Led::_blink(){
         int retval;
 
         FD_ZERO(&rfds);
-        FD_SET(_efd, &rfds);
+        FD_SET(_pipe.getReadFd(), &rfds);
         tv.tv_sec = 0;
         tv.tv_usec = time;
 
-        retval = select(_efd+1, &rfds, NULL, NULL, &tv);
+        retval = select(_pipe.getReadFd()+1, &rfds, NULL, NULL, &tv);
         if(retval == -1) {
             log(LOG_ERR, "select() failed");
             exit = true;
@@ -156,7 +146,7 @@ void Led::_blink(){
             _light(!_isOn);
         }
         else {
-            uint64_t value = readEvent(_efd);
+            char value = _pipe.read();
             if(value == 0) {
                 exit = true;
             }

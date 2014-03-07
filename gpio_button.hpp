@@ -1,10 +1,10 @@
 #ifndef _GPIO_BUTTON_HPP_
 #define _GPIO_BUTTON_HPP_
 
-#include <stdint.h>
 #include <sys/timerfd.h>
 
 #include "gpio.hpp"
+#include "pipe.hpp"
 
 class GpioButtonManager;   //internal classes, not usable
 
@@ -13,19 +13,19 @@ class GpioButton {
         GpioButton(int pin, bool rebounce, bool defaultHight = false);
         ~GpioButton();
 
-        int getEventFd() const;
+        const Pipe& getPipe() const;
         bool isValid() const;
 
-        static const uint64_t PRESS = 1;
-        static const uint64_t RELEASE = 2;
-        static const uint64_t LONG_PRESS = 3;
-        static const uint64_t LONG_RELEASE = 4;
+        static const char PRESS = 1;
+        static const char RELEASE = 2;
+        static const char LONG_PRESS = 3;
+        static const char LONG_RELEASE = 4;
 
     protected:
         friend class GpioButtonManager;
 
         int _pin;
-        int _eventFd;
+        Pipe _pipe;
         int _timerFd;
         bool _initFailed;
         Gpio::Value _status;

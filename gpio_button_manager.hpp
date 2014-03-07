@@ -8,6 +8,8 @@
 #include <vector>
 #include <poll.h>
 
+#include "pipe.hpp"
+
 class GpioButton;
 
 class GpioButtonManager {
@@ -21,9 +23,9 @@ class GpioButtonManager {
         static std::mutex _mut;
         static std::map<int, GpioButton*> _btns;
 
-        static const uint64_t EXIT = 1;
-        static const uint64_t BUTTON_CHANGED = 2;
-        static const uint64_t BUTTON_LIST_CHANGED = 3;
+        static const char EXIT = 1;
+        static const char BUTTON_CHANGED = 2;
+        static const char BUTTON_LIST_CHANGED = 3;
 
         GpioButtonManager();
         ~GpioButtonManager();
@@ -34,8 +36,9 @@ class GpioButtonManager {
         int _initFdList(pollfd*);
         void _resetLocalList();
         void _initTimerFd();
+        void _clearTimer(int timerFd);
 
-        int _inFd;
+        Pipe _pipe;
         int _timerFd;
         itimerspec _interval;
         pthread_t _thread;

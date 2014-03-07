@@ -10,7 +10,7 @@
 #include "gpio.hpp"
 #include "gpio_out.hpp"
 #include "gpio_button.hpp"
-#include "fd_utils.hpp"
+#include "mpd.hpp"
 
 //TODO: better error management
 //TODO: handle sigterm with sigaction, off the led and mount drive in r/o mode
@@ -36,9 +36,10 @@ bool run(bool isDaemon) {
         return false;
     }
 
+    Mpd mpd;
     Devices devs;
     Led led(LED_PIN);
-    GpioButton btn1(23, true);
+    GpioButton btn1(23, false);
     if(!btn1.isValid()) {
         log(LOG_ERR, "btn init failed");
         return false;
@@ -63,10 +64,10 @@ bool run(bool isDaemon) {
         FD_ZERO(&readFsSet);
         FD_SET(signalFd, &readFsSet);
         FD_SET(devs.getUdevFd(), &readFsSet);
-        FD_SET(btn1.getEventFd(), &readFsSet);
+        FD_SET(btn1.getPipe().getReadFd(), &readFsSet);
 
         int max = std::max(signalFd,devs.getUdevFd());
-        max = std::max(max, btn1.getEventFd());
+        max = std::max(max, btn1.getPipe().getReadFd());
 
         if(select(max+1, &readFsSet, NULL, NULL, NULL) == -1) {
             log(LOG_ERR, "unable to listen file descriptors: %s", strerror(errno));
@@ -92,9 +93,12 @@ bool run(bool isDaemon) {
                 led.on();
             }
         }
-        else if(FD_ISSET(btn1.getEventFd(), &readFsSet)){
-            uint64_t msg = readEvent(btn1.getEventFd());
-            log(LOG_INFO, "btn event %llu", msg);
+        else if(FD_ISSET(btn1.getPipe().getReadFd(), &readFsSet)){
+            char msg = btn1.getPipe().read();
+            log(LOG_INFO, "btn event %d", msg);
+            if(msg == GpioButton::PRESS) {
+                mpd.next();
+            }
         }
     }
     return true;

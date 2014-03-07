@@ -1,28 +1,26 @@
 #include "gpio_button.hpp"
 
-#include <sys/eventfd.h>
 #include <cstring>
 
 #include "config.h"
 #include "log.hpp"
-#include "fd_utils.hpp"
 #include "gpio_core.hpp"
 #include "gpio_button_manager.hpp"
 
 
 #define INTEGRATOR_MAXIMUM    (DEBOUNCE_TIME / DEBOUNCE_READ_DELAY)
 
-const uint64_t GpioButton::PRESS;
-const uint64_t GpioButton::RELEASE;
-const uint64_t GpioButton::LONG_PRESS;
-const uint64_t GpioButton::LONG_RELEASE;
+const char GpioButton::PRESS;
+const char GpioButton::RELEASE;
+const char GpioButton::LONG_PRESS;
+const char GpioButton::LONG_RELEASE;
 
 
 GpioButton::GpioButton(int pin, bool rebounce, bool defaultHigh) {
     _pin = pin;
     _initFailed = true;
     GpioCore::get().setPinMode(pin, Gpio::input);
-    GpioCore::get().setPull(pin, GpioCore::pullUp);
+    GpioCore::get().setPull(pin, GpioCore::pullOff);
     _status = defaultHigh ? Gpio::high : Gpio::low;
     _integrator = defaultHigh ? INTEGRATOR_MAXIMUM : 0;
     _defaultHigh = defaultHigh;
@@ -30,11 +28,6 @@ GpioButton::GpioButton(int pin, bool rebounce, bool defaultHigh) {
     _timerFd = -1;
     _long = false;
 
-    _eventFd = eventfd(0, 0);
-    if(_eventFd == -1) {
-        log(LOG_ERR, "unable to create eventfd for button pi %d: %s", pin, strerror(errno));
-        return;
-    }
     _initFailed = !GpioButtonManager::add(this);
 }
 
@@ -45,17 +38,14 @@ GpioButton::~GpioButton() {
     if(_timerFd != -1) {
         close(_timerFd);
     }
-    if(_eventFd != -1) {
-        close(_eventFd);
-    }
 }
 
 bool GpioButton::isValid() const {
     return !_initFailed;
 }
 
-int GpioButton::getEventFd() const {
-    return _eventFd;
+const Pipe& GpioButton::getPipe() const {
+    return _pipe;
 }
 
 Gpio::Value GpioButton::_integrate(Gpio::Value input) {
@@ -106,7 +96,7 @@ void GpioButton::_update() {
     }
     _status = output;
     if(((_status == Gpio::high) && !_defaultHigh) || ((_status == Gpio::low) && _defaultHigh)) {
-        sendEvent(_eventFd, GpioButton::PRESS);
+        _pipe.send(GpioButton::PRESS);
 
         GpioButtonManager::onButtonTimerChanged();
         _interval.it_value.tv_sec = BUTTON_DELAY / 1000000;
@@ -122,7 +112,7 @@ void GpioButton::_update() {
         }
     }
     else {
-        sendEvent(_eventFd, (_long ? GpioButton::LONG_RELEASE : GpioButton::RELEASE));
+        _pipe.send(_long ? GpioButton::LONG_RELEASE : GpioButton::RELEASE);
         GpioButtonManager::onButtonTimerChanged();
         close(_timerFd);
         _timerFd = -1;
@@ -131,7 +121,7 @@ void GpioButton::_update() {
 }
 
 void GpioButton::_onDelay() {
-     sendEvent(_eventFd, (_rebounce ? GpioButton::PRESS : GpioButton::LONG_PRESS));
+     _pipe.send(_rebounce ? GpioButton::PRESS : GpioButton::LONG_PRESS);
 
      if(_rebounce) {
          long next = computeNextDelay(_interval.it_value.tv_nsec);
