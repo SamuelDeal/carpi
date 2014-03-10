@@ -25,7 +25,6 @@ class Mpd {
         static const char NEXT = 3;
         static const char PREV = 4;
         static const char IDLE = 5;
-        static const char NO_IDLE = 6;
         static const char CONNECT = 7;
         static const char WAIT_RECONNECT = 8;
         static const char STATUS = 9;
@@ -44,10 +43,10 @@ class Mpd {
         static void* _startRun(void*);
         void _run();
         bool _execCmd(char cmd);
+        bool _waitEvent(int fd);
         bool _connect();
         bool _waitReconnect();
         bool _idle();
-        bool _noIdle();
         bool _getStatus();
         bool _playNext();
 };

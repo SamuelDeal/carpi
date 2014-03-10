@@ -20,7 +20,6 @@ const char Mpd::PLAY_PAUSE;
 const char Mpd::NEXT;
 const char Mpd::PREV;
 const char Mpd::IDLE;
-const char Mpd::NO_IDLE;
 const char Mpd::CONNECT;
 const char Mpd::WAIT_RECONNECT;
 const char Mpd::STATUS;
@@ -32,6 +31,7 @@ Mpd::Mpd() {
     _queueLength = 0;
     _currentIndex = -1;
     _timerFd = -1;
+    _conn = NULL;
     _cmds.push_back(Mpd::CONNECT);
     _cmds.push_back(Mpd::STATUS);
     pthread_create(&_thread, NULL, Mpd::_startRun, (void*)this);
@@ -49,10 +49,13 @@ Mpd::~Mpd() {
     ts.tv_sec += 3;
     int joined = pthread_timedjoin_np(_thread, NULL, &ts);
     if(joined != 0) {
-        log(LOG_ERR, "unable to join the thread");
+        log(LOG_ERR, "unable to join the mpd thread");
     }
     if(_timerFd != -1){
         close(_timerFd);
+    }
+    if(_conn != NULL) {
+        mpd_connection_free(_conn);
     }
 }
 
@@ -75,6 +78,9 @@ void* Mpd::_startRun(void *mpd) {
 void Mpd::_run() {
     while(true) {
         char cmd = _cmds.empty() ? Mpd::IDLE : _cmds.front();
+        if(!_cmds.empty()) {
+            _cmds.pop_front();
+        }
         if(cmd == Mpd::EXIT) {
             return;
         }
@@ -84,26 +90,29 @@ void Mpd::_run() {
             if((cmd != Mpd::CONNECT) && (cmd != Mpd::WAIT_RECONNECT)) {
                 _attemptCount = 0;
             }
-            _cmds.pop_front();
         }
         else if(cmd == CONNECT) {
             mpd_connection_free(_conn);
+            _conn = NULL;
+            _cmds.push_front(Mpd::CONNECT);
             _cmds.push_front(Mpd::WAIT_RECONNECT);
         }
-        else if(_attemptCount > 3) {
-            log(LOG_ERR, "max attempt to execute mpd command failed, dropping command");
-            _attemptCount = 0;
-            _cmds.pop_front();
-        }
-        else if(!mpd_connection_clear_error(_conn)) {
-            mpd_connection_free(_conn);
-            _cmds.push_front(Mpd::CONNECT);
-        }
         else {
-            ++_attemptCount;
+            if(_attemptCount >= 3) {
+                log(LOG_ERR, "max attempt to execute mpd command failed, dropping command");
+                _attemptCount = 0;
+            }
+            else{
+                _cmds.push_front(cmd);
+                ++_attemptCount;
+            }
+            if(!mpd_connection_clear_error(_conn)) {
+                mpd_connection_free(_conn);
+                _conn = NULL;
+                _cmds.push_front(Mpd::CONNECT);
+            }
         }
     }
-    mpd_connection_free(_conn);
 }
 
 
@@ -124,21 +133,21 @@ bool Mpd::_execCmd(char cmd) {
         case Mpd::IDLE:
             return _idle();
 
-        case Mpd::NO_IDLE:
-            return _noIdle();
-
         default:
-            log(LOG_ERR, "unknown mpd command");
+            log(LOG_ERR, "unknown mpd command: %d", cmd);
             return true;
     }
 }
 
 bool Mpd::_connect() {
     _conn = mpd_connection_new(NULL, 0, 30000);
-    log(LOG_INFO, "establishing mpd connection");
     if(mpd_connection_get_error(_conn) == MPD_ERROR_SUCCESS) {
         _cnxDelay = MPD_RECONNECT_DELAY;
         log(LOG_INFO, "mpd connection established");
+        if(_timerFd != -1){
+            close(_timerFd);
+            _timerFd = -1;
+        }
         return true;
     }
     log(LOG_ERR, "mpd conmection failed: %s", mpd_connection_get_error_message(_conn));
@@ -150,34 +159,64 @@ bool Mpd::_connect() {
 }
 
 bool Mpd::_waitReconnect() {
-    pollfd fds[1];
-    memset(fds, 0, sizeof(fds));
-    fds[0].fd = _pipe.getReadFd();
-    fds[0].events = POLLIN;
-    poll(fds, 1, _cnxDelay/1000);
-    if(fds[0].revents == POLLIN) { //exit cmd;
-        char evt = _pipe.read();
+    if(_timerFd == -1) {
+        _timerFd = timerfd_create(CLOCK_MONOTONIC, 0);
     }
+    itimerspec interval;
+    interval.it_value.tv_sec = _cnxDelay / 1000000;
+    interval.it_value.tv_nsec = (_cnxDelay % 1000000)* 1000;
+    interval.it_interval.tv_sec = 0;
+    interval.it_interval.tv_nsec = 0;
+    timerfd_settime(_timerFd, 0, &interval, NULL);
+    while(!_waitEvent(_timerFd)){
+        if(_cmds.front() == Mpd::EXIT) {
+            return true;
+        }
+    }
+    uint64_t unused;
+    read(_timerFd, &unused, sizeof(uint64_t));
     return true;
 }
 
 bool Mpd::_idle() {
-    log(LOG_INFO, "enter idle mode");
-    pollfd fds[1];
-    memset(fds, 0, sizeof(fds));
-    fds[0].fd = _pipe.getReadFd();
-    fds[0].events = POLLIN;
-    poll(fds, 1, -1);
-    if(fds[0].revents == POLLIN) {
-        _cmds.push_back(Mpd::NO_IDLE);
-        _cmds.push_back(_pipe.read());
+    if(!mpd_send_idle(_conn) || mpd_connection_get_error(_conn) != MPD_ERROR_SUCCESS) {
+        log(LOG_ERR, "idle mode failed: %s", mpd_connection_get_error_message(_conn));
+        return false;
+    }
+    _waitEvent(mpd_connection_get_fd(_conn));
+    if(_cmds.front() == Mpd::EXIT) {
+        return true;
+    }
+    int changes = (int)mpd_recv_idle(_conn, false);
+    if(changes == 0 || mpd_connection_get_error(_conn) != MPD_ERROR_SUCCESS) {
+        log(LOG_ERR, "idle mode failed: %s", mpd_connection_get_error_message(_conn));
+        return false;
+    }
+    if(!mpd_response_finish(_conn)) {
+        log(LOG_ERR, "idle mode failed: %s", mpd_connection_get_error_message(_conn));
+        return false;
+    }
+    if((changes & MPD_IDLE_QUEUE) == MPD_IDLE_QUEUE || (changes & MPD_IDLE_PLAYER) == MPD_IDLE_PLAYER) {
+       _cmds.push_front(Mpd::STATUS);
     }
     return true;
 }
 
-bool Mpd::_noIdle() {
-    log(LOG_INFO, "leaving idle mode");
-    return true;
+bool Mpd::_waitEvent(int contextFd) {
+    pollfd fds[2];
+    memset(fds, 0, sizeof(fds));
+    fds[0].fd = _pipe.getReadFd();
+    fds[0].events = POLLIN;
+    fds[1].fd = contextFd;
+    fds[1].events = POLLIN;
+    poll(fds, 2, -1);
+    if(fds[0].revents == POLLIN) {
+      _cmds.push_back(_pipe.read());
+    }
+    if(fds[1].revents == POLLIN) {
+        return true;
+    }
+    return false;
 }
 
 void Mpd::next(){
@@ -186,7 +225,6 @@ void Mpd::next(){
 
 
 bool Mpd::_playNext() {
-    log(LOG_INFO, "play next");
     if(_queueLength == 0){
         return true;
     }
@@ -225,7 +263,6 @@ bool Mpd::_getStatus() {
         log(LOG_ERR, "mpd status failed: %s", mpd_connection_get_error_message(_conn));
         return false;
     }
-    log(LOG_INFO, "got status %d, length %d, current %d", (int)_status, _queueLength, _currentIndex);
     return true;
 }
 
