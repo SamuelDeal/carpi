@@ -49,6 +49,7 @@ class Mpd {
         bool _idle();
         bool _getStatus();
         bool _playNext();
+        bool _playPrev();
 };
 
 #endif // _MPD_HPP

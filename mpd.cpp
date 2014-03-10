@@ -140,7 +140,7 @@ bool Mpd::_execCmd(char cmd) {
 }
 
 bool Mpd::_connect() {
-    _conn = mpd_connection_new(NULL, 0, 30000);
+    _conn = mpd_connection_new(NULL, 0, 5000);
     if(mpd_connection_get_error(_conn) == MPD_ERROR_SUCCESS) {
         _cnxDelay = MPD_RECONNECT_DELAY;
         log(LOG_INFO, "mpd connection established");
@@ -179,11 +179,14 @@ bool Mpd::_waitReconnect() {
 }
 
 bool Mpd::_idle() {
+    mpd_connection_set_timeout(_conn, 2000000000);
     if(!mpd_send_idle(_conn) || mpd_connection_get_error(_conn) != MPD_ERROR_SUCCESS) {
         log(LOG_ERR, "idle mode failed: %s", mpd_connection_get_error_message(_conn));
+        mpd_connection_set_timeout(_conn, 5000);
         return false;
     }
     _waitEvent(mpd_connection_get_fd(_conn));
+    mpd_connection_set_timeout(_conn, 5000);
     if(_cmds.front() == Mpd::EXIT) {
         return true;
     }

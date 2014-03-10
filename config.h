@@ -20,3 +20,7 @@
 #define MPD_RECONNECT_MAXDELAY  30000000 // max reconnection delay, usec
 #define MPD_RECONNECT_ACCEL     2
 
+#define PIN_BTN_NEXT            15
+#define PIN_BTN_PREV            17
+#define PIN_BTN_PAUSE           18
+

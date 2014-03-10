@@ -39,12 +39,21 @@ bool run(bool isDaemon) {
     Mpd mpd;
     Devices devs;
     Led led(LED_PIN);
-    GpioButton btn1(23, false);
-    if(!btn1.isValid()) {
-        log(LOG_ERR, "btn init failed");
+    GpioButton btnNext(PIN_BTN_NEXT, false);
+    GpioButton btnPrev(PIN_BTN_PREV, false);
+    GpioButton btnPause(PIN_BTN_PAUSE, false);
+    if(!btnNext.isValid()) {
+        log(LOG_ERR, "btn next failed");
         return false;
     }
-
+    if(!btnPrev.isValid()) {
+        log(LOG_ERR, "btn prev failed");
+        return false;
+    }
+    if(!btnPause.isValid()) {
+        log(LOG_ERR, "btn pause failed");
+        return false;
+    }
     if(!devs.isBigDiskConnected()) {
         led.blinkQuickly();
     }
@@ -64,10 +73,14 @@ bool run(bool isDaemon) {
         FD_ZERO(&readFsSet);
         FD_SET(signalFd, &readFsSet);
         FD_SET(devs.getUdevFd(), &readFsSet);
-        FD_SET(btn1.getPipe().getReadFd(), &readFsSet);
+        FD_SET(btnNext.getPipe().getReadFd(), &readFsSet);
+        FD_SET(btnPrev.getPipe().getReadFd(), &readFsSet);
+        FD_SET(btnPause.getPipe().getReadFd(), &readFsSet);
 
         int max = std::max(signalFd,devs.getUdevFd());
-        max = std::max(max, btn1.getPipe().getReadFd());
+        max = std::max(max, btnNext.getPipe().getReadFd());
+        max = std::max(max, btnPrev.getPipe().getReadFd());
+        max = std::max(max, btnPause.getPipe().getReadFd());
 
         if(select(max+1, &readFsSet, NULL, NULL, NULL) == -1) {
             log(LOG_ERR, "unable to listen file descriptors: %s", strerror(errno));
@@ -93,9 +106,23 @@ bool run(bool isDaemon) {
                 led.on();
             }
         }
-        else if(FD_ISSET(btn1.getPipe().getReadFd(), &readFsSet)){
-            char msg = btn1.getPipe().read();
-            log(LOG_INFO, "btn event %d", msg);
+        else if(FD_ISSET(btnNext.getPipe().getReadFd(), &readFsSet)){
+            char msg = btnNext.getPipe().read();
+            log(LOG_INFO, "btn Next event %d", msg);
+            if(msg == GpioButton::PRESS) {
+                mpd.next();
+            }
+        }
+        else if(FD_ISSET(btnPrev.getPipe().getReadFd(), &readFsSet)){
+            char msg = btnPrev.getPipe().read();
+            log(LOG_INFO, "btn Prev event %d", msg);
+            if(msg == GpioButton::PRESS) {
+                mpd.next();
+            }
+        }
+        else if(FD_ISSET(btnPause.getPipe().getReadFd(), &readFsSet)){
+            char msg = btnPause.getPipe().read();
+            log(LOG_INFO, "btn Pause event %d", msg);
             if(msg == GpioButton::PRESS) {
                 mpd.next();
             }

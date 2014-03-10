@@ -7,14 +7,12 @@
 #include "gpio_core.hpp"
 #include "gpio_button_manager.hpp"
 
-
 #define INTEGRATOR_MAXIMUM    (DEBOUNCE_TIME / DEBOUNCE_READ_DELAY)
 
 const char GpioButton::PRESS;
 const char GpioButton::RELEASE;
 const char GpioButton::LONG_PRESS;
 const char GpioButton::LONG_RELEASE;
-
 
 GpioButton::GpioButton(int pin, bool rebounce, bool defaultHigh) {
     _pin = pin;
@@ -98,14 +96,15 @@ void GpioButton::_update() {
     if(((_status == Gpio::high) && !_defaultHigh) || ((_status == Gpio::low) && _defaultHigh)) {
         _pipe.send(GpioButton::PRESS);
 
-        GpioButtonManager::onButtonTimerChanged();
         _interval.it_value.tv_sec = BUTTON_DELAY / 1000000;
         _interval.it_value.tv_nsec = (BUTTON_DELAY % 1000000) * 1000;
         long next = _rebounce ? computeNextDelay(BUTTON_DELAY * 1000) : (BUTTON_DELAY * 1000);
         _interval.it_interval.tv_sec = next / 1000000000;
         _interval.it_interval.tv_nsec = next % 1000000000;
 
-        _timerFd = timerfd_create(CLOCK_MONOTONIC, 0);
+        if(_timerFd == -1) {
+            _timerFd = timerfd_create(CLOCK_MONOTONIC, 0);
+        }
         timerfd_settime(_timerFd, 0, &_interval, NULL);
         if(_timerFd == -1) {
             log(LOG_ERR, "unable to create timer for debouncing: %s",  strerror(errno));
@@ -113,10 +112,12 @@ void GpioButton::_update() {
     }
     else {
         _pipe.send(_long ? GpioButton::LONG_RELEASE : GpioButton::RELEASE);
-        GpioButtonManager::onButtonTimerChanged();
-        close(_timerFd);
-        _timerFd = -1;
+        if(_timerFd != -1) {
+            close(_timerFd);
+            _timerFd = -1;
+        }
     }
+    GpioButtonManager::onButtonTimerChanged();
     _long = false;
 }
 
@@ -132,7 +133,7 @@ void GpioButton::_onDelay() {
          _interval.it_interval.tv_nsec = next % 1000000000;
          timerfd_settime(_timerFd, 0, &_interval, NULL);
      }
-     else {
+     else if(_timerFd != -1) {
          GpioButtonManager::onButtonTimerChanged();
          close(_timerFd);
          _timerFd = -1;

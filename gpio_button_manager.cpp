@@ -17,7 +17,6 @@ std::mutex GpioButtonManager::_mut;
 GpioButtonManager* GpioButtonManager::_instance = NULL;
 std::map<int, GpioButton*> GpioButtonManager::_btns;
 
-
 bool GpioButtonManager::add(GpioButton *btn) {
     if(btn == NULL) {
         return false;
@@ -148,7 +147,11 @@ void GpioButtonManager::_run(){
         for(int i = 2; i < fdCount; i++) {
             if(fdList[i].revents == POLLIN) {
                 _clearTimer(fdList[i].fd);
-                _localBtns[i-2]->_onDelay();
+                for(GpioButton* btn : _localBtns) {
+                    if(btn->_timerFd == fdList[i].fd) {
+                        btn->_onDelay();
+                    }
+                }
             }
         }
     }

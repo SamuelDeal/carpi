@@ -34,6 +34,7 @@ class GpioButton {
         bool _rebounce;
         bool _long; // is thenbutton pressed for long time ?
         itimerspec _interval;
+        int _ctr;
 
         Gpio::Value _integrate(Gpio::Value input);
         void _update();
