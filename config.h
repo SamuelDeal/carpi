@@ -2,7 +2,7 @@
 #define RUN_AS_USER             "pi"
 #define PID_FILE                "/var/lock/" DAEMON_NAME ".pid"
 
-#define LED_PIN                 11
+#define LED_PIN                 8
 
 #define IGNORED_PARTITIONS      {"boot"}
 #define BIG_DISK_NAME           "rpi_trip"

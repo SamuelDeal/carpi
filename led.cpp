@@ -10,13 +10,16 @@ const char Led::ON;
 const char Led::OFF;
 const char Led::BLINK_SLOWLY;
 const char Led::BLINK_QUICKLY;
+const char Led::BLINK_NUMBER;
 const char Led::QUIT;
 const long Led::SLOW_TIME;
 const long Led::QUICK_TIME;
+const long Led::NUMBER_TIME;
 
 Led::Led(int ledPin): _pin(ledPin) {
     _isOn = false;
     _status = Led::OFF;
+    _blinkCount = 0;
 }
 
 Led::~Led() {
@@ -51,6 +54,7 @@ void Led::blinkSlowly() {
         return;
     }
     if(_blinking()){
+        _blinkCount = 0;
         _status = Led::BLINK_SLOWLY;
         _pipe.send(Led::BLINK_SLOWLY);
     }
@@ -66,11 +70,29 @@ void Led::blinkQuickly() {
         return;
     }
     if(_blinking()){
+        _blinkCount = 0;
         _status = Led::BLINK_QUICKLY;
         _pipe.send(Led::BLINK_QUICKLY);
     }
     else{
         _status = Led::BLINK_QUICKLY;
+        pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
+    }
+}
+
+void Led::blinkNumber(unsigned int number) {
+    const std::lock_guard<std::mutex> lock(_mut);
+    _blinkNumber = number;
+    _blinkCount = _isOn ? 0 : 1;
+    if(_status == Led::BLINK_NUMBER){
+        return;
+    }
+    if(_blinking()){
+        _status = Led::BLINK_NUMBER;
+        _pipe.send(Led::BLINK_NUMBER);
+    }
+    else{
+        _status = Led::BLINK_NUMBER;
         pthread_create(&_thread, NULL, Led::_startBlinking, (void*)this);
     }
 }
@@ -84,7 +106,7 @@ void Led::_light(bool value){
 }
 
 bool Led::_blinking(){
-    return (_status == Led::BLINK_SLOWLY || _status == Led::BLINK_QUICKLY);
+    return (_status == Led::BLINK_SLOWLY || _status == Led::BLINK_QUICKLY || _status == Led::BLINK_NUMBER);
 }
 
 void Led::_stopBlinking() {
@@ -122,8 +144,20 @@ void* Led::_startBlinking(void*led){
     return NULL;
 }
 
+long Led::_getBlinkDelay() {
+    switch(_status) {
+        case Led::BLINK_SLOWLY: return Led::SLOW_TIME;
+        case Led::BLINK_QUICKLY: return Led::QUICK_TIME;
+        case Led::BLINK_NUMBER:
+            return Led::NUMBER_TIME * ((0 == _blinkCount) ? 2 : 1);
+        default:
+             return 1000;
+    }
+}
+
 void Led::_blink(){
-    long time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+    _blinkCount = 0;
+    long time = _getBlinkDelay();
     _light(!_isOn);
     bool exit = false;
     while(!exit) {
@@ -142,8 +176,14 @@ void Led::_blink(){
             exit = true;
         }
         else if (!retval) {  // timeout
-            time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+            time = _getBlinkDelay();
             _light(!_isOn);
+            if(_status == Led::BLINK_NUMBER) {
+                ++_blinkCount;
+                if(_blinkNumber*2 <= _blinkCount) {
+                    _blinkCount = 0;
+                }
+            }
         }
         else {
             char value = _pipe.read();
@@ -154,7 +194,7 @@ void Led::_blink(){
     	        exit = true;
             }
 	        else{
-	            time = _status == Led::BLINK_SLOWLY ? Led::SLOW_TIME : Led::QUICK_TIME;
+	            time = _getBlinkDelay();
                 if(tv.tv_usec > time){
                     time = tv.tv_usec - time;
                 }

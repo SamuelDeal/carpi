@@ -16,6 +16,7 @@ class Led {
        static const char OFF = 2;
        static const char BLINK_SLOWLY = 3;
        static const char BLINK_QUICKLY = 4;
+       static const char BLINK_NUMBER = 5;
 
        Led(int ledPin);
        ~Led();
@@ -23,11 +24,13 @@ class Led {
        void off();
        void blinkSlowly();
        void blinkQuickly();
+       void blinkNumber(unsigned int);
 
     protected:
-       static const char QUIT = 5;
+       static const char QUIT = 6;
        static const long SLOW_TIME = 300000;
        static const long QUICK_TIME = 50000;
+       static const long NUMBER_TIME = 250000;
 
        Pipe _pipe;
        pthread_t _thread;
@@ -35,12 +38,15 @@ class Led {
        bool _isOn;
        char _status;
        GpioOut _pin;
+       unsigned int _blinkNumber;
+       unsigned int _blinkCount;
 
        static void* _startBlinking(void*);
        void _light(bool);
        void _stopBlinking();
        bool _blinking();
        void _blink();
+       long _getBlinkDelay();
 };
 
 #endif // _LED_HPP
